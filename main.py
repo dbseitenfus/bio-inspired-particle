@@ -14,6 +14,15 @@ import threading
 import queue
 import time
 from collections import deque  # Para implementar a média móvel
+from mqtt_client import *
+
+def connect_nano_server():
+    topics = ["sensor/temperature", "sensor/ph"]
+
+    client = MqttClient(topics, clientid="test", ip="34.27.98.205", port=2494, user="participants", password="prp1nterac")
+    client.connect()
+
+connect_nano_server()
 
 USE_3D_MODEL = True
 
