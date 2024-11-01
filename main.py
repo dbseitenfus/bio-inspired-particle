@@ -9,30 +9,125 @@ from vispy.scene import visuals
 from noise import pnoise3
 import trimesh
 import matplotlib.pyplot as plt
-import sounddevice as sd  # Importação para captura de áudio
 import threading
 import queue
+from collections import deque
 import time
-from collections import deque  # Para implementar a média móvel
-from mqtt_client import *
 
-def connect_nano_server():
-    topics = ["sensor/temperature", "sensor/ph"]
-
-    client = MqttClient(topics, clientid="test", ip="34.27.98.205", port=2494, user="participants", password="prp1nterac")
-    client.connect()
-
-connect_nano_server()
+import paho.mqtt.client as mqtt
 
 USE_3D_MODEL = True
 
-# Se o modelo tiver muitos vértices, você pode querer reduzir
+# Configurações para os modelos 3D
+model_paths = ['forma01.obj', 'forma02.obj', 'forma03.obj']
 max_points = 10000
 
-canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor='black')
-view = canvas.central_widget.add_view()
+# Configurações de conexão MQTT
+MQTT_IP = "34.27.98.205"
+MQTT_PORT = 2494
+MQTT_USER = "participants"
+MQTT_PASSWORD = "prp1nterac"
+MQTT_TOPICS = ["sensor/temperature", "sensor/ph", "sensor/luminosity", "sensor/humidity"]
 
-# Função para gerar pontos uniformemente distribuídos em uma esfera
+# Classe base para fontes de entrada
+class InputSource:
+    def get_value(self, topic):
+        return 0.0
+
+# Implementação da fonte de entrada MQTT
+class MqttInput(InputSource):
+    def __init__(self, client, smoothing=10):
+        self.client = client
+        self.values = {}
+        self.lock = threading.Lock()
+        self.smoothing = smoothing
+        self.history = {}  # Armazena histórico dos valores para suavização
+
+    def get_value(self, topic):
+        with self.lock:
+            if topic in self.history and len(self.history[topic]) > 0:
+                return np.mean(self.history[topic])
+            else:
+                return 0.0
+
+    def update_value(self, topic, value):
+        with self.lock:
+            if topic not in self.history:
+                self.history[topic] = deque(maxlen=self.smoothing)
+            self.history[topic].append(value)
+            self.values[topic] = np.mean(self.history[topic])
+
+# Implementação do cliente MQTT
+class CustomMqttClient:
+    def __init__(self, topics, input_source, clientid, ip, port, user, password):
+        self.topics = topics
+        self.input_source = input_source
+        self.client = mqtt.Client(client_id=clientid)
+        self.client.username_pw_set(user, password)
+        self.client.on_connect = self.on_connect
+        self.client.on_message = self.on_message
+        self.ip = ip
+        self.port = port
+
+    def connect_and_loop(self):
+        try:
+            self.client.connect(self.ip, self.port, keepalive=60)
+            print("Conectado ao broker MQTT.")
+            self.client.loop_forever()
+        except Exception as e:
+            print(f"Erro ao conectar ao broker MQTT: {e}")
+
+    def on_connect(self, client, userdata, flags, rc):
+        print("Conectado ao broker MQTT com código de resultado: " + str(rc))
+        for topic in self.topics:
+            client.subscribe(topic)
+            print(f"Inscrito no tópico: {topic}")
+
+    def on_message(self, client, userdata, msg):
+        try:
+            topic = msg.topic
+            payload = float(msg.payload.decode())
+            self.input_source.update_value(topic, payload)
+            print(f"Recebido do tópico {topic}: {payload}")
+        except Exception as e:
+            print(f"Erro ao processar a mensagem do tópico {msg.topic}: {e}")
+
+# Função para conectar ao servidor MQTT
+def connect_mqtt_server(input_source):
+    client = CustomMqttClient(
+        MQTT_TOPICS,
+        input_source,
+        clientid="test",
+        ip=MQTT_IP,
+        port=MQTT_PORT,
+        user=MQTT_USER,
+        password=MQTT_PASSWORD
+    )
+    # Executa o loop do MQTT em um thread separado
+    mqtt_thread = threading.Thread(target=client.connect_and_loop)
+    mqtt_thread.daemon = True  # Permite que o thread seja encerrado ao fechar o programa
+    mqtt_thread.start()
+    return client
+
+# Carrega o modelo 3D
+def load_3d_model(file_path):
+    mesh = trimesh.load(file_path)
+
+    if isinstance(mesh, trimesh.Scene):
+        combined = trimesh.util.concatenate(tuple(mesh.geometry.values()))
+        vertices = combined.vertices
+    elif isinstance(mesh, trimesh.Trimesh):
+        vertices = mesh.vertices
+    else:
+        raise TypeError("O arquivo não contém uma malha compatível.")
+
+    # Normalizar os vértices
+    vertices -= np.mean(vertices, axis=0)
+    max_extent = np.max(np.abs(vertices))
+    vertices /= max_extent
+    return vertices
+
+# Gera pontos em uma esfera
 def generate_sphere(num_points):
     phi = np.random.uniform(0, np.pi * 2, num_points)
     costheta = np.random.uniform(-1, 1, num_points)
@@ -48,32 +143,14 @@ def generate_sphere(num_points):
     pos = np.vstack((x, y, z)).T
     return pos
 
-# Load a 3D model using trimesh
-def load_3d_model(file_path):
-    mesh = trimesh.load(file_path)
-
-    if isinstance(mesh, trimesh.Scene):
-        combined = trimesh.util.concatenate(tuple(mesh.geometry.values()))
-        vertices = combined.vertices
-    elif isinstance(mesh, trimesh.Trimesh):
-        vertices = mesh.vertices
-    else:
-        raise TypeError("O arquivo não contém uma malha compatível.")
-
-    # Normalizar os vértices para que o modelo fique centrado e em escala similar
-    vertices -= np.mean(vertices, axis=0)
-    max_extent = np.max(np.abs(vertices))
-    vertices /= max_extent
-    return vertices
-
-# Lista de caminhos para os modelos
-model_paths = ['forma01.obj', 'forma02.obj', 'forma03.obj']
+# Configuração inicial
+canvas = vispy.scene.SceneCanvas(keys='interactive', show=True, bgcolor='black')
+view = canvas.central_widget.add_view()
 
 if USE_3D_MODEL:
-    # Carregar todos os modelos e armazená-los em uma lista
+    # Carregar todos os modelos
     models = [load_3d_model(path) for path in model_paths]
 else:
-    # Se não estiver usando modelos 3D, usar esferas
     models = [generate_sphere(max_points) for _ in range(len(model_paths))]
 
 # Garantir que todos os modelos tenham o mesmo número de pontos
@@ -85,6 +162,7 @@ current_model_index = 0
 original_pos = models[current_model_index]
 pos = original_pos.copy()
 
+# Configuração do scatter plot
 scatter = visuals.Markers()
 scatter.set_data(pos, edge_width=0, face_color=(0.5, 0.8, 1, 0.8), size=2)
 view.add(scatter)
@@ -92,14 +170,14 @@ view.camera = 'turntable'
 
 axis = visuals.XYZAxis(parent=view.scene)
 
-# Precarregar o colormap para evitar recomputação
-cmap = plt.get_cmap('gnuplot')
+# Precarregar o colormap
+cmap = plt.get_cmap('gnuplot')  # Usando o colormap original
 
 # Variáveis para a animação
 time_counter = 0.0
 scale = 0.7
 speed = 0.4
-amplitude = 0.2
+amplitude = 0.8
 
 # Variáveis para transição entre modelos
 transition_time = 5.0  # Duração da transição em segundos
@@ -110,48 +188,12 @@ next_model_index = (current_model_index + 1) % len(models)
 transition_start_pos = original_pos.copy()
 transition_end_pos = models[next_model_index]
 
-# Classe base para fontes de entrada
-class InputSource:
-    def get_value(self):
-        return 0.0
+# Instanciar a fonte de entrada MQTT
+input_source = MqttInput(None)  # O cliente será atribuído após a conexão
 
-# Implementação da fonte de entrada do microfone
-class MicrophoneInput(InputSource):
-    def __init__(self, smoothing=10):
-        self.q = queue.Queue()
-        self.stream = sd.InputStream(callback=self.audio_callback)
-        self.stream.start()
-        self.value = 0.0
-        self.smoothing = smoothing
-        self.values = deque(maxlen=smoothing)  # Armazena os últimos N valores
-
-    def audio_callback(self, indata, frames, time_info, status):
-        volume_norm = np.linalg.norm(indata) / frames
-        self.q.put(volume_norm)
-
-    def get_value(self):
-        # Atualiza o valor apenas se houver novos dados
-        while not self.q.empty():
-            new_value = self.q.get()
-            self.values.append(new_value)
-            # Calcula a média dos últimos N valores
-            self.value = np.mean(self.values)
-        return self.value
-
-# Você pode adicionar outras fontes de entrada aqui
-# Por exemplo, uma fonte de entrada que usa um sinal senoidal
-class SineWaveInput(InputSource):
-    def __init__(self, frequency=1.0):
-        self.frequency = frequency
-        self.start_time = time.time()
-
-    def get_value(self):
-        elapsed_time = time.time() - self.start_time
-        return (np.sin(2 * np.pi * self.frequency * elapsed_time) + 1) / 2  # Normalizado entre 0 e 1
-
-# Selecione a fonte de entrada desejada
-input_source = MicrophoneInput(smoothing=300)  # Aumente o valor de 'smoothing' para mais suavidade
-# input_source = SineWaveInput(frequency=0.5)
+# Conectar ao servidor MQTT
+client = connect_mqtt_server(input_source)
+input_source.client = client  # Atribuir o cliente à fonte de entrada
 
 def update(event):
     global pos, time_counter, amplitude, scale, speed
@@ -163,7 +205,7 @@ def update(event):
     time_since_last_transition += event.dt
 
     # Verifica se é hora de iniciar uma nova transição
-    if not transition_in_progress and time_since_last_transition >= 20.0:
+    if not transition_in_progress and time_since_last_transition >= 10.0:
         transition_in_progress = True
         transition_start_time = time_counter
         time_since_last_transition = 0.0
@@ -184,12 +226,34 @@ def update(event):
             # Interpola entre as posições iniciais e finais
             original_pos = (1 - t) * transition_start_pos + t * transition_end_pos
 
-    # Obtém o valor da fonte de entrada
-    input_value = input_source.get_value()
+    # Obtém os valores dos sensores
+    temperature = input_source.get_value("sensor/temperature")
+    ph = input_source.get_value("sensor/ph")
+    luminosity = input_source.get_value("sensor/luminosity")
+    humidity = input_source.get_value("sensor/humidity")
 
-    # Use o valor suavizado para modificar os parâmetros
-    dynamic_speed = speed + input_value * 0.5  # Ajuste o multiplicador conforme necessário
-    dynamic_amplitude = amplitude + input_value * 0.5
+    # Definir os valores mínimo e máximo esperados para normalização
+    temp_min, temp_max = 0, 40       # Exemplo para temperatura (°C)
+    ph_min, ph_max = 0, 14           # Exemplo para pH
+    lum_min, lum_max = 0, 1000       # Exemplo para luminosidade
+    hum_min, hum_max = 0, 100        # Exemplo para umidade (%)
+
+    # Normalizar os valores dos sensores
+    normalized_temp = (temperature - temp_min) / (temp_max - temp_min)
+    normalized_temp = np.clip(normalized_temp, 0, 1)
+
+    normalized_ph = (ph - ph_min) / (ph_max - ph_min)
+    normalized_ph = np.clip(normalized_ph, 0, 1)
+
+    normalized_lum = (luminosity - lum_min) / (lum_max - lum_min)
+    normalized_lum = np.clip(normalized_lum, 0, 1)
+
+    normalized_hum = (humidity - hum_min) / (hum_max - hum_min)
+    normalized_hum = np.clip(normalized_hum, 0, 1)
+
+    # Use os valores normalizados para modificar os parâmetros
+    dynamic_speed = speed + normalized_ph * 0.5         # pH influencia a velocidade
+    dynamic_amplitude = amplitude + normalized_temp * 0.5  # Temperatura influencia a amplitude
 
     # Calcula o deslocamento para todas as partículas de forma vetorizada
     nx = original_pos[:, 0] * scale + time_counter * dynamic_speed
@@ -197,7 +261,6 @@ def update(event):
     nz = original_pos[:, 2] * scale
 
     # Usando vetorização para melhorar a performance
-    # Usando um mapa de ruído para todas as partículas
     noise_values_x = np.array([
         pnoise3(x, y, z) for x, y, z in zip(nx, ny, nz)
     ])
@@ -215,6 +278,16 @@ def update(event):
     max_displacement_magnitude = dynamic_amplitude * np.sqrt(3)
     normalized_magnitude = np.clip(displacement_magnitude / max_displacement_magnitude, 0, 1)
 
+    # Mapeia a magnitude do deslocamento para a cor
+    # colors = cmap(normalized_magnitude)
+
+    # # Ajustar a transparência com base na luminosidade
+    # alpha = np.clip(normalized_lum, 0.1, 1.0)
+    # colors[:, 3] = alpha  # Atualiza o canal alfa das cores
+
+    # # Modificar o tamanho das partículas com base na umidade
+    # sizes = 3 + normalized_hum * 5  # Partículas maiores para umidade alta
+
     # Atualizar cores e tamanhos
     colors = cmap(normalized_magnitude)
     sizes = 3 + normalized_magnitude * 3
@@ -222,6 +295,30 @@ def update(event):
     scatter.set_data(pos, edge_width=0, face_color=colors, size=sizes)
     canvas.update()
 
+# Opcional: Exibir valores dos sensores na tela
+from vispy.scene.visuals import Text
+
+temperature_text = Text('', color='white', font_size=12, parent=view.scene, pos=(10, 10))
+ph_text = Text('', color='white', font_size=12, parent=view.scene, pos=(10, 30))
+luminosity_text = Text('', color='white', font_size=12, parent=view.scene, pos=(10, 50))
+humidity_text = Text('', color='white', font_size=12, parent=view.scene, pos=(10, 70))
+
+def update_sensor_texts():
+    temperature = input_source.get_value("sensor/temperature")
+    ph = input_source.get_value("sensor/ph")
+    luminosity = input_source.get_value("sensor/luminosity")
+    humidity = input_source.get_value("sensor/humidity")
+
+    temperature_text.text = f'Temperatura: {temperature:.2f}°C'
+    ph_text.text = f'pH: {ph:.2f}'
+    luminosity_text.text = f'Luminosidade: {luminosity:.2f} lx'
+    humidity_text.text = f'Umidade: {humidity:.2f}%'
+
+@canvas.events.draw.connect
+def on_draw(event):
+    update_sensor_texts()
+
+# Eventos de teclado para ajustar parâmetros manualmente
 def add_speed(value):
     global speed
     speed += value
