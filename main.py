@@ -16,7 +16,12 @@ import time
 
 import paho.mqtt.client as mqtt
 
+from hands_pose import *
+
 USE_3D_MODEL = True
+
+hand_tracker = HandTracker()
+# hand_tracker.run()
 
 # Configurações para os modelos 3D
 model_paths = ['forma01.obj', 'forma02.obj', 'forma03.obj']
@@ -195,11 +200,16 @@ input_source = MqttInput(None)  # O cliente será atribuído após a conexão
 client = connect_mqtt_server(input_source)
 input_source.client = client  # Atribuir o cliente à fonte de entrada
 
+# Configuração do scatter plot para as partículas das mãos
+hand_scatter = visuals.Markers()
+view.add(hand_scatter)  # Adiciona o scatter das mãos à visualização
+
 def update(event):
     global pos, time_counter, amplitude, scale, speed
     global time_since_last_transition, transition_in_progress, transition_start_time
     global current_model_index, next_model_index, original_pos
     global transition_start_pos, transition_end_pos
+
 
     time_counter += event.dt
     time_since_last_transition += event.dt
@@ -293,6 +303,26 @@ def update(event):
     sizes = 3 + normalized_magnitude * 3
 
     scatter.set_data(pos, edge_width=0, face_color=colors, size=sizes)
+
+    # Captura e renderiza as partículas das mãos
+    hands_points = hand_tracker.get_hand_landmarks()
+    if hands_points:
+        hand_points_array = np.array(hands_points)
+
+        # Ajusta os eixos X e Y para centralizar e manter as partículas alinhadas
+        hand_points_array[:, 0] = (hand_points_array[:, 0] - 0.5) * 2  # Centraliza no eixo X
+        hand_points_array[:, 1] = (0.5 - hand_points_array[:, 1]) * 2  # Inverte e centraliza o eixo Y
+        
+        # Define o eixo Z para um valor constante para dar a impressão de um plano 2D
+        hand_points_array[:, 2] = -0.5  # Define Z para um plano fixo
+
+        # Renderiza as partículas das mãos com um tamanho maior
+        hand_scatter.set_data(
+            hand_points_array, edge_width=0, face_color=(1, 0.5, 0.5, 0.9), size=10
+        )  # Cor e tamanho para as partículas das mãos
+
+
+
     canvas.update()
 
 # Opcional: Exibir valores dos sensores na tela
