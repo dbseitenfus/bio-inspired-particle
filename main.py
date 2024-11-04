@@ -19,7 +19,7 @@ import paho.mqtt.client as mqtt
 USE_3D_MODEL = True
 
 # Configurações para os modelos 3D
-model_paths = ['forma01.obj', 'forma02.obj', 'forma03.obj']
+model_paths = ["Forma00.obj","Forma01.obj", "Forma02.obj", "Forma03.obj", "Forma04.obj", "Forma05.obj", "Forma06.obj", "Forma07.obj", "Forma08.obj", "Forma09.obj", "Forma10.obj", "Forma11.obj", "Forma12.obj", "Forma13.obj", "Forma14.obj", "Forma15.obj", "Forma16.obj", "Forma17.obj", "Forma18.obj", "Forma19.obj", "Forma20.obj", "Forma21.obj", "Forma22.obj", "Forma23.obj", "Forma24.obj", "Forma25.obj", "Forma26.obj", "Forma27.obj", "Forma28.obj", "Forma29.obj", "Forma30.obj", "Forma31.obj", "Forma32.obj", "Forma33.obj", "Forma34.obj", "Forma35.obj", "Forma36.obj", "Forma37.obj", "Forma38.obj", "Forma39.obj"]
 max_points = 10000
 
 # Configurações de conexão MQTT
@@ -27,7 +27,7 @@ MQTT_IP = "34.27.98.205"
 MQTT_PORT = 2494
 MQTT_USER = "participants"
 MQTT_PASSWORD = "prp1nterac"
-MQTT_TOPICS = ["sensor/temperature", "sensor/ph", "sensor/luminosity", "sensor/humidity"]
+MQTT_TOPICS = ["hiper/touch","hiper/touch2","sensor/temperature", "sensor/ph", "sensor/luminosity", "sensor/humidity"]
 
 # Classe base para fontes de entrada
 class InputSource:
@@ -175,9 +175,13 @@ cmap = plt.get_cmap('gnuplot')  # Usando o colormap original
 
 # Variáveis para a animação
 time_counter = 0.0
-scale = 0.7
-speed = 0.4
-amplitude = 0.8
+scale = 0.0
+speed = 0.0
+amplitude = 0.0
+
+scale_goal = 1
+speed_goal = 0.4
+amplitude_goal = 1.5
 
 # Variáveis para transição entre modelos
 transition_time = 5.0  # Duração da transição em segundos
@@ -196,7 +200,7 @@ client = connect_mqtt_server(input_source)
 input_source.client = client  # Atribuir o cliente à fonte de entrada
 
 def update(event):
-    global pos, time_counter, amplitude, scale, speed
+    global pos, time_counter, amplitude, scale, speed, scale_goal, speed_goal, amplitude_goal
     global time_since_last_transition, transition_in_progress, transition_start_time
     global current_model_index, next_model_index, original_pos
     global transition_start_pos, transition_end_pos
@@ -226,37 +230,50 @@ def update(event):
             # Interpola entre as posições iniciais e finais
             original_pos = (1 - t) * transition_start_pos + t * transition_end_pos
 
-    # Obtém os valores dos sensores
-    temperature = input_source.get_value("sensor/temperature")
-    ph = input_source.get_value("sensor/ph")
-    luminosity = input_source.get_value("sensor/luminosity")
-    humidity = input_source.get_value("sensor/humidity")
+    # # Obtém os valores dos sensores
+    # touch = input_source.get_value("hiper/touch")
+    # touch2 = input_source.get_value("hiper/touch2")
+    # luminosity = input_source.get_value("sensor/luminosity")
+    # humidity = input_source.get_value("sensor/humidity")
 
-    # Definir os valores mínimo e máximo esperados para normalização
-    temp_min, temp_max = 0, 40       # Exemplo para temperatura (°C)
-    ph_min, ph_max = 0, 14           # Exemplo para pH
-    lum_min, lum_max = 0, 1000       # Exemplo para luminosidade
-    hum_min, hum_max = 0, 100        # Exemplo para umidade (%)
+    # # Definir os valores mínimo e máximo esperados para normalização
+    # temp_min, temp_max = 0, 1       # Exemplo para temperatura (°C)
+    # ph_min, ph_max = 0, 1            # Exemplo para pH
+    # lum_min, lum_max = 0, 1000       # Exemplo para luminosidade
+    # hum_min, hum_max = 0, 100        # Exemplo para umidade (%)
 
-    # Normalizar os valores dos sensores
-    normalized_temp = (temperature - temp_min) / (temp_max - temp_min)
-    normalized_temp = np.clip(normalized_temp, 0, 1)
+    # # Normalizar os valores dos sensores
+    # normalized_temp = (touch - temp_min) / (temp_max - temp_min)
+    # normalized_temp = np.clip(normalized_temp, 0, 1)
 
-    normalized_ph = (ph - ph_min) / (ph_max - ph_min)
-    normalized_ph = np.clip(normalized_ph, 0, 1)
+    # normalized_ph = (touch2 - ph_min) / (ph_max - ph_min)
+    # normalized_ph = np.clip(normalized_ph, 0, 1)
 
-    normalized_lum = (luminosity - lum_min) / (lum_max - lum_min)
-    normalized_lum = np.clip(normalized_lum, 0, 1)
+    # normalized_lum = (luminosity - lum_min) / (lum_max - lum_min)
+    # normalized_lum = np.clip(normalized_lum, 0, 1)
 
-    normalized_hum = (humidity - hum_min) / (hum_max - hum_min)
-    normalized_hum = np.clip(normalized_hum, 0, 1)
+    # normalized_hum = (humidity - hum_min) / (hum_max - hum_min)
+    # normalized_hum = np.clip(normalized_hum, 0, 1)
 
     # Use os valores normalizados para modificar os parâmetros
-    dynamic_speed = speed + normalized_ph * 0.5         # pH influencia a velocidade
-    dynamic_amplitude = amplitude + normalized_temp * 0.5  # Temperatura influencia a amplitude
+    # speed = normalized_ph * 0.2         # Reduzido de 0.5 para 0.2
+    # amplitude = normalized_temp * 0.2  # Reduzido de 0.5 para 0.2
+
+    # scale = scale + scale_goal * 0.01
+    # speed = speed + speed_goal * 0.01
+    # amplitude = amplitude + amplitude_goal * 0.01
+
+    scale += (scale_goal - scale) * 0.007
+    speed += (speed_goal - speed) * 0.007
+    amplitude += (amplitude_goal - amplitude) * 0.007
+
+    # print(scale)
+    print(speed)
+    # print(amplitude)
+
 
     # Calcula o deslocamento para todas as partículas de forma vetorizada
-    nx = original_pos[:, 0] * scale + time_counter * dynamic_speed
+    nx = original_pos[:, 0] * scale + time_counter * speed
     ny = original_pos[:, 1] * scale
     nz = original_pos[:, 2] * scale
 
@@ -265,17 +282,17 @@ def update(event):
         pnoise3(x, y, z) for x, y, z in zip(nx, ny, nz)
     ])
     noise_values_y = np.array([
-        pnoise3(x, y + time_counter * dynamic_speed, z) for x, y, z in zip(nx, ny, nz)
+        pnoise3(x, y + time_counter * speed, z) for x, y, z in zip(nx, ny, nz)
     ])
     noise_values_z = np.array([
-        pnoise3(x, y, z + time_counter * dynamic_speed) for x, y, z in zip(nx, ny, nz)
+        pnoise3(x, y, z + time_counter * speed) for x, y, z in zip(nx, ny, nz)
     ])
 
-    displacement = np.vstack((noise_values_x, noise_values_y, noise_values_z)).T * dynamic_amplitude
+    displacement = np.vstack((noise_values_x, noise_values_y, noise_values_z)).T * amplitude
     pos = original_pos + displacement
 
     displacement_magnitude = np.linalg.norm(displacement, axis=1)
-    max_displacement_magnitude = dynamic_amplitude * np.sqrt(3)
+    max_displacement_magnitude = amplitude * np.sqrt(3)
     normalized_magnitude = np.clip(displacement_magnitude / max_displacement_magnitude, 0, 1)
 
     # Mapeia a magnitude do deslocamento para a cor
@@ -320,12 +337,12 @@ def on_draw(event):
 
 # Eventos de teclado para ajustar parâmetros manualmente
 def add_speed(value):
-    global speed
-    speed += value
+    global speed_goal
+    speed_goal = 0.8
 
 def add_scale(value):
-    global scale
-    scale += value
+    global speed_goal
+    speed_goal = 0.1
 
 def add_amplitude(value):
     global amplitude
