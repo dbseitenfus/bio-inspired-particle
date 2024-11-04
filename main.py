@@ -168,7 +168,7 @@ scatter.set_data(pos, edge_width=0, face_color=(0.5, 0.8, 1, 0.8), size=2)
 view.add(scatter)
 view.camera = 'turntable'
 
-axis = visuals.XYZAxis(parent=view.scene)
+# axis = visuals.XYZAxis(parent=view.scene)
 
 # Precarregar o colormap
 cmap = plt.get_cmap('gnuplot')  # Usando o colormap original
@@ -268,7 +268,7 @@ def update(event):
     amplitude += (amplitude_goal - amplitude) * 0.007
 
     # print(scale)
-    print(speed)
+    # print(speed)
     # print(amplitude)
 
 
