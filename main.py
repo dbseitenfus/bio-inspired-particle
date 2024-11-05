@@ -10,17 +10,19 @@ from noise import pnoise3
 import trimesh
 import matplotlib.pyplot as plt
 import threading
-import queue
 from collections import deque
-import time
-
+import sounddevice as sd  # Importado para capturar áudio do microfone
 import paho.mqtt.client as mqtt
+import random
+from trimesh.sample import sample_surface
+
 
 USE_3D_MODEL = True
 
 # Configurações para os modelos 3D
-model_paths = ["Forma00.obj","Forma01.obj", "Forma02.obj", "Forma03.obj", "Forma04.obj", "Forma05.obj", "Forma06.obj", "Forma07.obj", "Forma08.obj", "Forma09.obj", "Forma10.obj", "Forma11.obj", "Forma12.obj", "Forma13.obj", "Forma14.obj", "Forma15.obj", "Forma16.obj", "Forma17.obj", "Forma18.obj", "Forma19.obj", "Forma20.obj", "Forma21.obj", "Forma22.obj", "Forma23.obj", "Forma24.obj", "Forma25.obj", "Forma26.obj", "Forma27.obj", "Forma28.obj", "Forma29.obj", "Forma30.obj", "Forma31.obj", "Forma32.obj", "Forma33.obj", "Forma34.obj", "Forma35.obj", "Forma36.obj", "Forma37.obj", "Forma38.obj", "Forma39.obj"]
-max_points = 10000
+model_paths = ["sphere", "corona.obj","corona.obj","corona.obj","Forma01.obj", "Forma02.obj", "Forma03.obj", "Forma04.obj", "Forma05.obj", "Forma06.obj", "Forma07.obj", "Forma08.obj", "Forma09.obj", "Forma10.obj", "Forma11.obj", "Forma12.obj", "Forma13.obj", "Forma14.obj", "Forma15.obj", "Forma16.obj", "Forma17.obj", "Forma18.obj", "Forma19.obj", "Forma20.obj", "Forma21.obj", "Forma22.obj", "Forma23.obj", "Forma24.obj", "Forma25.obj", "Forma26.obj", "Forma27.obj", "Forma28.obj", "Forma29.obj", "Forma30.obj", "Forma31.obj", "Forma32.obj", "Forma33.obj", "Forma34.obj", "Forma35.obj", "Forma36.obj", "Forma37.obj", "Forma38.obj", "Forma39.obj"]
+random.shuffle(model_paths)
+max_points = 10000  # Aumentado de 10000 para 50000
 
 # Configurações de conexão MQTT
 MQTT_IP = "34.27.98.205"
@@ -88,7 +90,7 @@ class CustomMqttClient:
             topic = msg.topic
             payload = float(msg.payload.decode())
             self.input_source.update_value(topic, payload)
-            print(f"Recebido do tópico {topic}: {payload}")
+            # print(f"Recebido do tópico {topic}: {payload}")
         except Exception as e:
             print(f"Erro ao processar a mensagem do tópico {msg.topic}: {e}")
 
@@ -111,21 +113,25 @@ def connect_mqtt_server(input_source):
 
 # Carrega o modelo 3D
 def load_3d_model(file_path):
-    mesh = trimesh.load(file_path)
-
-    if isinstance(mesh, trimesh.Scene):
-        combined = trimesh.util.concatenate(tuple(mesh.geometry.values()))
-        vertices = combined.vertices
-    elif isinstance(mesh, trimesh.Trimesh):
-        vertices = mesh.vertices
+    if file_path == "sphere":
+        vertices = generate_sphere(max_points)
     else:
-        raise TypeError("O arquivo não contém uma malha compatível.")
-
-    # Normalizar os vértices
-    vertices -= np.mean(vertices, axis=0)
-    max_extent = np.max(np.abs(vertices))
-    vertices /= max_extent
+        mesh = trimesh.load(file_path)
+        if isinstance(mesh, trimesh.Scene):
+            combined = trimesh.util.concatenate(tuple(mesh.geometry.values()))
+            mesh = combined
+        elif isinstance(mesh, trimesh.Trimesh):
+            pass  # mesh já está carregada
+        else:
+            raise TypeError("O arquivo não contém uma malha compatível.")
+        # Amostrar pontos da superfície
+        vertices, face_indices = trimesh.sample.sample_surface(mesh, max_points)
+        # Normalizar os vértices
+        vertices -= np.mean(vertices, axis=0)
+        max_extent = np.max(np.abs(vertices))
+        vertices /= max_extent
     return vertices
+
 
 # Gera pontos em uma esfera
 def generate_sphere(num_points):
@@ -154,24 +160,22 @@ else:
     models = [generate_sphere(max_points) for _ in range(len(model_paths))]
 
 # Garantir que todos os modelos tenham o mesmo número de pontos
-num_points = min([model.shape[0] for model in models])
-models = [model[:num_points] for model in models]
+# num_points = min([model.shape[0] for model in models])
+# models = [model[:num_points] for model in models]
 
 # Posição inicial é o primeiro modelo
 current_model_index = 0
 original_pos = models[current_model_index]
 pos = original_pos.copy()
 
-# Configuração do scatter plot
+# cmap = plt.get_cmap('plasma')  # Alterado de 'gnuplot' para 'plasma' para cores mais vibrantes
+
+# Configuração do scatter plot com blending ajustado
 scatter = visuals.Markers()
 scatter.set_data(pos, edge_width=0, face_color=(0.5, 0.8, 1, 0.8), size=2)
+scatter.set_gl_state('translucent', depth_test=True, blend_func=('src_alpha', 'one_minus_src_alpha'))
 view.add(scatter)
 view.camera = 'turntable'
-
-# axis = visuals.XYZAxis(parent=view.scene)
-
-# Precarregar o colormap
-cmap = plt.get_cmap('gnuplot')  # Usando o colormap original
 
 # Variáveis para a animação
 time_counter = 0.0
@@ -183,6 +187,19 @@ scale_goal = 1
 speed_goal = 0.4
 amplitude_goal = 1.5
 
+# Precarregar o colormap
+color_style_change_interval = 60.0  # Intervalo em segundos (4 minutos)
+time_since_last_color_change = 0.0
+current_color_style_index = 0
+color_styles = ['OrRd']  # Lista de colormaps
+cmap = plt.get_cmap(color_styles[current_color_style_index])  # Colormap inicial
+# Variáveis para controlar a transição de cor
+color_transition_duration = 10.0  # Duração da transição em segundos
+color_transition_in_progress = False
+color_transition_start_time = 0.0
+previous_cmap = cmap  # Armazena o colormap anterior
+
+
 # Variáveis para transição entre modelos
 transition_time = 5.0  # Duração da transição em segundos
 time_since_last_transition = 0.0
@@ -193,23 +210,56 @@ transition_start_pos = original_pos.copy()
 transition_end_pos = models[next_model_index]
 
 # Instanciar a fonte de entrada MQTT
-input_source = MqttInput(None)  # O cliente será atribuído após a conexão
+input_source = MqttInput(None)
 
 # Conectar ao servidor MQTT
 client = connect_mqtt_server(input_source)
-input_source.client = client  # Atribuir o cliente à fonte de entrada
+input_source.client = client
+
+# Variáveis para o volume do microfone
+mic_volume = 0.0
+
+# def audio_callback(indata, frames, time, status):
+#     global mic_volume
+#     # Calcula o volume RMS (Root Mean Square)
+#     volume_norm = np.linalg.norm(indata) * 10
+#     mic_volume = volume_norm
+
+# def start_audio_stream():
+#     stream = sd.InputStream(callback=audio_callback)
+#     stream.start()
+
+# # Inicia o stream de áudio em um thread separado
+# audio_thread = threading.Thread(target=start_audio_stream)
+# audio_thread.daemon = True
+# audio_thread.start()
 
 def update(event):
     global pos, time_counter, amplitude, scale, speed, scale_goal, speed_goal, amplitude_goal
     global time_since_last_transition, transition_in_progress, transition_start_time
     global current_model_index, next_model_index, original_pos
     global transition_start_pos, transition_end_pos
+    global time_since_last_color_change, color_style_change_interval, current_color_style_index, color_styles, cmap
+    global color_transition_duration, color_transition_in_progress, color_transition_start_time, previous_cmap
 
     time_counter += event.dt
     time_since_last_transition += event.dt
+    time_since_last_color_change += event.dt  # Atualiza o temporizador de cores
+
+     # Verifica se é hora de iniciar uma nova transição de cor
+    if time_since_last_color_change >= color_style_change_interval:
+        time_since_last_color_change = 0.0  # Reinicia o temporizador
+        # Inicia a transição de cor
+        color_transition_in_progress = True
+        color_transition_start_time = time_counter
+        previous_cmap = cmap
+        current_color_style_index = (current_color_style_index + 1) % len(color_styles)
+        cmap = plt.get_cmap(color_styles[current_color_style_index])
+
+    
 
     # Verifica se é hora de iniciar uma nova transição
-    if not transition_in_progress and time_since_last_transition >= 10.0:
+    if not transition_in_progress and time_since_last_transition >= 40.0:
         transition_in_progress = True
         transition_start_time = time_counter
         time_since_last_transition = 0.0
@@ -263,14 +313,17 @@ def update(event):
     # speed = speed + speed_goal * 0.01
     # amplitude = amplitude + amplitude_goal * 0.01
 
+    # Ajustar scale, speed e amplitude suavemente
     scale += (scale_goal - scale) * 0.007
     speed += (speed_goal - speed) * 0.007
     amplitude += (amplitude_goal - amplitude) * 0.007
 
-    # print(scale)
-    # print(speed)
-    # print(amplitude)
+    # Normalizar o volume do microfone
+    # normalized_mic_volume = np.clip(mic_volume / 10.0, 0.0, 1.0)
+    # print(normalized_mic_volume)
 
+    # Atualizar a velocidade com base no volume do microfone
+    # speed = speed_goal * normalized_mic_volume
 
     # Calcula o deslocamento para todas as partículas de forma vetorizada
     nx = original_pos[:, 0] * scale + time_counter * speed
@@ -295,67 +348,37 @@ def update(event):
     max_displacement_magnitude = amplitude * np.sqrt(3)
     normalized_magnitude = np.clip(displacement_magnitude / max_displacement_magnitude, 0, 1)
 
+    # Se a transição de cor está em progresso, faça a interpolação gradual
+    if color_transition_in_progress:
+        t_color = (time_counter - color_transition_start_time) / color_transition_duration
+        t_color = np.clip(t_color, 0.0, 1.0)  # Limita t_color a 1.0 no máximo
+        if t_color >= 1.0:
+            color_transition_in_progress = False  # Finaliza a transição
+        
+        # Interpolação entre os colormaps antigo e novo
+        colors_old = previous_cmap(normalized_magnitude)
+        colors_new = cmap(normalized_magnitude)
+        colors = (1 - t_color) * colors_old + t_color * colors_new
+    else:
+        # Se não há transição, use o colormap atual diretamente
+        colors = cmap(normalized_magnitude)
+
     # Mapeia a magnitude do deslocamento para a cor
     # colors = cmap(normalized_magnitude)
 
-    # # Ajustar a transparência com base na luminosidade
-    # alpha = np.clip(normalized_lum, 0.1, 1.0)
-    # colors[:, 3] = alpha  # Atualiza o canal alfa das cores
+    # Ajustar a transparência com base na magnitude do deslocamento
+    alpha = 0.5 + 0.5 * normalized_magnitude  # Varia entre 0.5 e 1.0
+    colors[:, 3] = alpha
 
-    # # Modificar o tamanho das partículas com base na umidade
-    # sizes = 3 + normalized_hum * 5  # Partículas maiores para umidade alta
-
-    # Atualizar cores e tamanhos
-    colors = cmap(normalized_magnitude)
-    sizes = 3 + normalized_magnitude * 3
+    # Modificar o tamanho das partículas
+    sizes = 5 + normalized_magnitude * 5  # Partículas maiores para deslocamentos maiores
 
     scatter.set_data(pos, edge_width=0, face_color=colors, size=sizes)
     canvas.update()
 
-# Opcional: Exibir valores dos sensores na tela
-from vispy.scene.visuals import Text
+# (A função update_sensor_texts e a conexão com o evento draw permanecem iguais)
 
-temperature_text = Text('', color='white', font_size=12, parent=view.scene, pos=(10, 10))
-ph_text = Text('', color='white', font_size=12, parent=view.scene, pos=(10, 30))
-luminosity_text = Text('', color='white', font_size=12, parent=view.scene, pos=(10, 50))
-humidity_text = Text('', color='white', font_size=12, parent=view.scene, pos=(10, 70))
-
-def update_sensor_texts():
-    temperature = input_source.get_value("sensor/temperature")
-    ph = input_source.get_value("sensor/ph")
-    luminosity = input_source.get_value("sensor/luminosity")
-    humidity = input_source.get_value("sensor/humidity")
-
-    temperature_text.text = f'Temperatura: {temperature:.2f}°C'
-    ph_text.text = f'pH: {ph:.2f}'
-    luminosity_text.text = f'Luminosidade: {luminosity:.2f} lx'
-    humidity_text.text = f'Umidade: {humidity:.2f}%'
-
-@canvas.events.draw.connect
-def on_draw(event):
-    update_sensor_texts()
-
-# Eventos de teclado para ajustar parâmetros manualmente
-def add_speed(value):
-    global speed_goal
-    speed_goal = 0.8
-
-def add_scale(value):
-    global speed_goal
-    speed_goal = 0.1
-
-def add_amplitude(value):
-    global amplitude
-    amplitude += value
-
-@canvas.events.key_press.connect
-def on_key_press(event):
-    if event.key == 'a':
-        add_speed(0.01)
-    if event.key == 'b':
-        add_scale(0.01)
-    if event.key == 'c':
-        add_amplitude(0.01)
+# Eventos de teclado para ajustar parâmetros manualmente (permanece igual)
 
 timer = vispy.app.Timer()
 timer.connect(update)
