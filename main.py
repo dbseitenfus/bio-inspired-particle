@@ -191,7 +191,7 @@ amplitude_goal = 1.5
 color_style_change_interval = 60.0  # Intervalo em segundos (4 minutos)
 time_since_last_color_change = 0.0
 current_color_style_index = 0
-color_styles = ['OrRd']  # Lista de colormaps
+color_styles = ['plasma', 'viridis', 'magma', 'hsv']  # Lista de colormaps
 cmap = plt.get_cmap(color_styles[current_color_style_index])  # Colormap inicial
 # Variáveis para controlar a transição de cor
 color_transition_duration = 10.0  # Duração da transição em segundos
