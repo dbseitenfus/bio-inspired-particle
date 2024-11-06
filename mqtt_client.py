@@ -36,15 +36,23 @@ class MqttClient:
 			print(f"Topic: {message.topic}")
 			print(f"Payload: {message.payload}")
 			print(f"QoS: {message.qos}")
-
+			
+	def on_disconnect(self, client, userdata, rc):
+		if rc != 0:
+			print("Desconexão inesperada. Tentando reconectar...")
+			try:
+				client.reconnect()
+			except Exception as e:
+				print(f"Erro ao tentar reconectar: {e}")
 
 	# inicia a conexão em si, bem como a mantém ativa	
 	def connect(self):
 		client = Client(client_id= self.clientid, clean_session= False) # chama o módulo
 		client.on_connect = self.on_connect # instancia a função de conexão
 		client.on_message = self.on_message # instancia a função de recebimento de dados
+		client.on_disconnect = self.on_disconnect
 		
 		client.username_pw_set(self.user, self.password) # Insere as credenciais para conexão
-		client.connect(host=self.ip, port=self.port) # inicia a conexão, de fato
+		client.connect(host=self.ip, port=self.port, keepalive=120) # inicia a conexão, de fato
 		
 		client.loop_forever() # mantém a conexão ativa
