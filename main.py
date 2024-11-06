@@ -75,14 +75,14 @@ class CustomMqttClient:
     def connect_and_loop(self):
         try:
             self.client.connect(self.ip, self.port, keepalive=120)
-            print("Conectado ao broker MQTT.")
+            # print("Conectado ao broker MQTT.")
             self.client.loop_forever()
         except Exception as e:
             print(f"Erro ao conectar ao broker MQTT: {e}")
 
     def on_disconnect(self, client, userdata, rc):
         if rc != 0:
-            print("Desconexão inesperada. Tentando reconectar...")
+            # print("Desconexão inesperada. Tentando reconectar...")
             try:
                 client.reconnect()
             except Exception as e:
@@ -93,14 +93,14 @@ class CustomMqttClient:
         print("Conectado ao broker MQTT com código de resultado: " + str(rc))
         for topic in self.topics:
             client.subscribe(topic)
-            print(f"Inscrito no tópico: {topic}")
+            # print(f"Inscrito no tópico: {topic}")
 
     def on_message(self, client, userdata, msg):
         try:
             topic = msg.topic
             payload = float(msg.payload.decode())
             self.input_source.update_value(topic, payload)
-            print(f"Recebido do tópico {topic}: {payload}")
+            # print(f"Recebido do tópico {topic}: {payload}")
         except Exception as e:
             print(f"Erro ao processar a mensagem do tópico {msg.topic}: {e}")
 
@@ -248,7 +248,7 @@ mic_volume = 0.0
 def publish_data(client, topic, data):
     try:
         client.client.publish(topic, data)
-        print(f"Dados enviados para {topic}: {data}")
+        # print(f"Dados enviados para {topic}: {data}")
     except Exception as e:
         print(f"Erro ao enviar dados para {topic}: {e}")
 
