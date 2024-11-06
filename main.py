@@ -29,7 +29,7 @@ MQTT_IP = "34.27.98.205"
 MQTT_PORT = 2494
 MQTT_USER = "participants"
 MQTT_PASSWORD = "prp1nterac"
-MQTT_TOPICS = ["hiper/touch","hiper/touch2","sensor/temperature", "sensor/ph", "sensor/luminosity", "sensor/humidity"]
+MQTT_TOPICS = ["hiper/touch","hiper/touch2"]
 
 # Classe base para fontes de entrada
 class InputSource:
@@ -68,16 +68,26 @@ class CustomMqttClient:
         self.client.username_pw_set(user, password)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
+        self.client.on_disconnect = self.on_disconnect
         self.ip = ip
         self.port = port
 
     def connect_and_loop(self):
         try:
-            self.client.connect(self.ip, self.port, keepalive=60)
+            self.client.connect(self.ip, self.port, keepalive=120)
             print("Conectado ao broker MQTT.")
             self.client.loop_forever()
         except Exception as e:
             print(f"Erro ao conectar ao broker MQTT: {e}")
+
+    def on_disconnect(self, client, userdata, rc):
+        if rc != 0:
+            print("Desconexão inesperada. Tentando reconectar...")
+            try:
+                client.reconnect()
+            except Exception as e:
+                print(f"Erro ao tentar reconectar: {e}")
+
 
     def on_connect(self, client, userdata, flags, rc):
         print("Conectado ao broker MQTT com código de resultado: " + str(rc))
@@ -90,7 +100,7 @@ class CustomMqttClient:
             topic = msg.topic
             payload = float(msg.payload.decode())
             self.input_source.update_value(topic, payload)
-            # print(f"Recebido do tópico {topic}: {payload}")
+            print(f"Recebido do tópico {topic}: {payload}")
         except Exception as e:
             print(f"Erro ao processar a mensagem do tópico {msg.topic}: {e}")
 
@@ -244,13 +254,22 @@ def publish_data(client, topic, data):
 
 # Função para enviar os dados a cada 1 segundo
 def send_data_periodically(event):
-    global scale, speed, amplitude, client
+    # global scale, speed, amplitude, client
     publish_data(client, "hiper/labinter/scale", scale)
     publish_data(client, "hiper/labinter/speed", speed)
     publish_data(client, "hiper/labinter/amplitude", amplitude)
 
-data_timer = vispy.app.Timer(interval=1.0, start=True, connect=send_data_periodically)
+data_timer = vispy.app.Timer(interval=0.1, start=True, connect=send_data_periodically)
 
+def update_goals(event):
+    global scale_goal, speed_goal, amplitude_goal
+    # Adicionar aleatoriedade dentro de um intervalo menor em torno dos valores atuais
+    scale_goal = random.uniform(max(0.5, scale_goal - 0.5), min(2.0, scale_goal + 0.5))
+    speed_goal = random.uniform(max(0.1, speed_goal - 0.3), min(1.0, speed_goal + 0.3))
+    amplitude_goal = random.uniform(max(0.5, amplitude_goal - 1.0), min(3.0, amplitude_goal + 1.0))
+
+# Temporizador para atualizar os goals a cada 40 segundos
+goal_timer = vispy.app.Timer(interval=100.0, start=True, connect=update_goals)
 
 def update(event):
     global pos, time_counter, amplitude, scale, speed, scale_goal, speed_goal, amplitude_goal
@@ -331,10 +350,20 @@ def update(event):
     # speed = speed + speed_goal * 0.01
     # amplitude = amplitude + amplitude_goal * 0.01
 
+    touch = input_source.get_value("hiper/touch")
+    touch2 = input_source.get_value("hiper/touch2")
+
+    if random.choice([0,1]) == 1:
+        scale_goal = scale_goal + touch * 0.001
+        speed_goal = speed_goal + touch2 * 0.001
+    else:
+        scale_goal = scale_goal - touch * 0.001
+        speed_goal = speed_goal - touch2 * 0.001
+
     # Ajustar scale, speed e amplitude suavemente
-    scale += (scale_goal - scale) * 0.007
-    speed += (speed_goal - speed) * 0.007
-    amplitude += (amplitude_goal - amplitude) * 0.007
+    scale += (scale_goal - scale) * 0.001
+    speed += (speed_goal - speed) * 0.001
+    amplitude += (amplitude_goal - amplitude) * 0.001
 
     # Normalizar o volume do microfone
     # normalized_mic_volume = np.clip(mic_volume / 10.0, 0.0, 1.0)
