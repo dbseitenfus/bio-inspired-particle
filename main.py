@@ -234,6 +234,24 @@ mic_volume = 0.0
 # audio_thread.daemon = True
 # audio_thread.start()
 
+# Função para publicar os dados no servidor MQTT
+def publish_data(client, topic, data):
+    try:
+        client.client.publish(topic, data)
+        print(f"Dados enviados para {topic}: {data}")
+    except Exception as e:
+        print(f"Erro ao enviar dados para {topic}: {e}")
+
+# Função para enviar os dados a cada 1 segundo
+def send_data_periodically(event):
+    global scale, speed, amplitude, client
+    publish_data(client, "hiper/labinter/scale", scale)
+    publish_data(client, "hiper/labinter/speed", speed)
+    publish_data(client, "hiper/labinter/amplitude", amplitude)
+
+data_timer = vispy.app.Timer(interval=1.0, start=True, connect=send_data_periodically)
+
+
 def update(event):
     global pos, time_counter, amplitude, scale, speed, scale_goal, speed_goal, amplitude_goal
     global time_since_last_transition, transition_in_progress, transition_start_time
