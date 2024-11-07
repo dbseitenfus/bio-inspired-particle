@@ -16,6 +16,9 @@ import paho.mqtt.client as mqtt
 import random
 from trimesh.sample import sample_surface
 
+import gc
+gc.disable()
+
 
 USE_3D_MODEL = True
 
@@ -228,21 +231,21 @@ input_source.client = client
 
 # Variáveis para o volume do microfone
 mic_volume = 0.0
+stream = None  # Variável global para manter a referência ao stream
 
-# def audio_callback(indata, frames, time, status):
-#     global mic_volume
-#     # Calcula o volume RMS (Root Mean Square)
-#     volume_norm = np.linalg.norm(indata) * 10
-#     mic_volume = volume_norm
+def audio_callback(indata, frames, time, status):
+    global mic_volume
+    # Calcula o volume RMS (Root Mean Square)
+    volume_norm = np.linalg.norm(indata) * 10
+    mic_volume = volume_norm
 
-# def start_audio_stream():
-#     stream = sd.InputStream(callback=audio_callback)
-#     stream.start()
+def start_audio_stream():
+    global stream
+    stream = sd.InputStream(callback=audio_callback)
+    stream.start()
 
-# # Inicia o stream de áudio em um thread separado
-# audio_thread = threading.Thread(target=start_audio_stream)
-# audio_thread.daemon = True
-# audio_thread.start()
+# Inicia o stream de áudio na thread principal
+start_audio_stream()
 
 # Função para publicar os dados no servidor MQTT
 def publish_data(client, topic, data):
@@ -259,7 +262,7 @@ def send_data_periodically(event):
     publish_data(client, "hiper/labinter/speed", speed)
     publish_data(client, "hiper/labinter/amplitude", amplitude)
 
-data_timer = vispy.app.Timer(interval=0.1, start=True, connect=send_data_periodically)
+data_timer = vispy.app.Timer(interval=0.05, start=True, connect=send_data_periodically)
 
 def update_goals(event):
     global scale_goal, speed_goal, amplitude_goal
@@ -267,6 +270,7 @@ def update_goals(event):
     scale_goal = random.uniform(max(0.5, scale_goal - 0.5), min(2.0, scale_goal + 0.5))
     speed_goal = random.uniform(max(0.1, speed_goal - 0.3), min(1.0, speed_goal + 0.3))
     amplitude_goal = random.uniform(max(0.5, amplitude_goal - 1.0), min(3.0, amplitude_goal + 1.0))
+    gc.collect()
 
 # Temporizador para atualizar os goals a cada 40 segundos
 goal_timer = vispy.app.Timer(interval=100.0, start=True, connect=update_goals)
@@ -355,22 +359,25 @@ def update(event):
 
     if random.choice([0,1]) == 1:
         scale_goal = scale_goal + touch * 0.001
-        speed_goal = speed_goal + touch2 * 0.001
+        amplitude_goal = amplitude_goal + touch2 * 0.001
     else:
         scale_goal = scale_goal - touch * 0.001
-        speed_goal = speed_goal - touch2 * 0.001
+        amplitude_goal = amplitude_goal - touch2 * 0.001
+
+
+    # # Normalizar o volume do microfone
+    normalized_mic_volume = np.clip(mic_volume / 10.0, 0.0, 1.0)
+    # # print(normalized_mic_volume)
+
+    # # Atualizar a velocidade com base no volume do microfone
+    speed_goal = normalized_mic_volume
 
     # Ajustar scale, speed e amplitude suavemente
     scale += (scale_goal - scale) * 0.001
     speed += (speed_goal - speed) * 0.001
     amplitude += (amplitude_goal - amplitude) * 0.001
 
-    # Normalizar o volume do microfone
-    # normalized_mic_volume = np.clip(mic_volume / 10.0, 0.0, 1.0)
-    # print(normalized_mic_volume)
-
-    # Atualizar a velocidade com base no volume do microfone
-    # speed = speed_goal * normalized_mic_volume
+    
 
     # Calcula o deslocamento para todas as partículas de forma vetorizada
     nx = original_pos[:, 0] * scale + time_counter * speed
