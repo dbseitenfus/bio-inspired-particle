@@ -271,7 +271,7 @@ def update_goals(event):
     global scale_goal, speed_goal, amplitude_goal
     # Adicionar aleatoriedade dentro de um intervalo menor em torno dos valores atuais
     scale_goal = random.uniform(max(0.5, scale_goal - 0.5), min(2.0, scale_goal + 0.5))
-    speed_goal = random.uniform(max(0.1, speed_goal - 0.3), min(1.0, speed_goal + 0.3))
+    # speed_goal = random.uniform(max(0.1, speed_goal - 0.3), min(1.0, speed_goal + 0.3))
     amplitude_goal = random.uniform(max(0.5, amplitude_goal - 1.0), min(3.0, amplitude_goal + 1.0))
     gc.collect()
 
