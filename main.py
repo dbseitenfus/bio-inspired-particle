@@ -25,7 +25,7 @@ USE_3D_MODEL = True
 # Configurações para os modelos 3D
 model_paths = ["sphere", "corona.obj","corona.obj","corona.obj","Forma01.obj", "Forma02.obj", "Forma03.obj", "Forma04.obj", "Forma05.obj", "Forma06.obj", "Forma07.obj", "Forma08.obj", "Forma09.obj", "Forma10.obj", "Forma11.obj", "Forma12.obj", "Forma13.obj", "Forma14.obj", "Forma15.obj", "Forma16.obj", "Forma17.obj", "Forma18.obj", "Forma19.obj", "Forma20.obj", "Forma21.obj", "Forma22.obj", "Forma23.obj", "Forma24.obj", "Forma25.obj", "Forma26.obj", "Forma27.obj", "Forma28.obj", "Forma29.obj", "Forma30.obj", "Forma31.obj", "Forma32.obj", "Forma33.obj", "Forma34.obj", "Forma35.obj", "Forma36.obj", "Forma37.obj", "Forma38.obj", "Forma39.obj"]
 random.shuffle(model_paths)
-max_points = 10000  # Aumentado de 10000 para 50000
+max_points = 20000  # Aumentado de 10000 para 50000
 
 # Configurações de conexão MQTT
 MQTT_IP = "34.27.98.205"
@@ -200,11 +200,14 @@ scale_goal = 1
 speed_goal = 0.4
 amplitude_goal = 1.5
 
+from matplotlib import colormaps
+
 # Precarregar o colormap
 color_style_change_interval = 60.0  # Intervalo em segundos (4 minutos)
 time_since_last_color_change = 0.0
 current_color_style_index = 0
-color_styles = ['plasma', 'viridis', 'magma', 'hsv']  # Lista de colormaps
+color_styles = ['plasma', 'viridis', 'magma', 'cividis', 'hsv', 'tab10', 'tab20', 'prism', 'nipy_spectral', 'gist_stern']  # Lista de colormaps
+random.shuffle(color_styles)
 cmap = plt.get_cmap(color_styles[current_color_style_index])  # Colormap inicial
 # Variáveis para controlar a transição de cor
 color_transition_duration = 10.0  # Duração da transição em segundos
@@ -262,7 +265,7 @@ def send_data_periodically(event):
     publish_data(client, "hiper/labinter/speed", speed)
     publish_data(client, "hiper/labinter/amplitude", amplitude)
 
-data_timer = vispy.app.Timer(interval=0.05, start=True, connect=send_data_periodically)
+data_timer = vispy.app.Timer(interval=0.2, start=True, connect=send_data_periodically)
 
 def update_goals(event):
     global scale_goal, speed_goal, amplitude_goal
@@ -296,8 +299,6 @@ def update(event):
         previous_cmap = cmap
         current_color_style_index = (current_color_style_index + 1) % len(color_styles)
         cmap = plt.get_cmap(color_styles[current_color_style_index])
-
-    
 
     # Verifica se é hora de iniciar uma nova transição
     if not transition_in_progress and time_since_last_transition >= 40.0:
@@ -357,32 +358,40 @@ def update(event):
     touch = input_source.get_value("hiper/touch")
     touch2 = input_source.get_value("hiper/touch2")
 
-    if random.choice([0,1]) == 1:
-        scale_goal = scale_goal + touch * 0.001
-        amplitude_goal = amplitude_goal + touch2 * 0.001
-    else:
-        scale_goal = scale_goal - touch * 0.001
-        amplitude_goal = amplitude_goal - touch2 * 0.001
+    rgb = input_source.get_value("hiper/touch")
+
+    # if random.choice([0,1]) == 1:
+    #     scale_goal = scale_goal + touch * 0.001
+    #     amplitude_goal = amplitude_goal + touch2 * 0.001
+    # else:
+    #     scale_goal = scale_goal - touch * 0.001
+    #     amplitude_goal = amplitude_goal - touch2 * 0.001
+    #     speed_goal = speed_goal - touch2 * 0.001
 
 
     # # Normalizar o volume do microfone
-    normalized_mic_volume = np.clip(mic_volume / 10.0, 0.0, 1.0)
+    normalized_mic_volume = np.clip(mic_volume / 10.0, 0.0, 0.5)
     # # print(normalized_mic_volume)
 
     # # Atualizar a velocidade com base no volume do microfone
-    speed_goal = normalized_mic_volume
+    # amplitude_goal = normalized_mic_volume * 10
+    amplitude_goal = normalized_mic_volume * 5
+
+    # print(amplitude_goal)
+
+    # speed_goal = normalized_mic_volume
+
+    # print(speed_goal)
 
     # Ajustar scale, speed e amplitude suavemente
-    scale += (scale_goal - scale) * 0.001
+    scale += (scale_goal - scale) * 0.01
     speed += (speed_goal - speed) * 0.001
-    amplitude += (amplitude_goal - amplitude) * 0.001
-
-    
+    amplitude += (amplitude_goal - amplitude) * 0.07
 
     # Calcula o deslocamento para todas as partículas de forma vetorizada
     nx = original_pos[:, 0] * scale + time_counter * speed
-    ny = original_pos[:, 1] * scale
-    nz = original_pos[:, 2] * scale
+    ny = original_pos[:, 1] * scale + time_counter * speed
+    nz = original_pos[:, 2] * scale + time_counter * speed
 
     # Usando vetorização para melhorar a performance
     noise_values_x = np.array([
