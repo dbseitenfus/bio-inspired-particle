@@ -235,6 +235,7 @@ input_source.client = client
 # Variáveis para o volume do microfone
 mic_volume = 0.0
 stream = None  # Variável global para manter a referência ao stream
+mic_available = False  # Indica se o microfone está disponível
 
 def audio_callback(indata, frames, time, status):
     global mic_volume
@@ -243,9 +244,21 @@ def audio_callback(indata, frames, time, status):
     mic_volume = volume_norm
 
 def start_audio_stream():
-    global stream
-    stream = sd.InputStream(callback=audio_callback)
-    stream.start()
+    global stream, mic_available
+    try:
+        # Verificar se há dispositivos de entrada disponíveis
+        input_devices = sd.query_devices(kind='input')
+        if not input_devices:
+            print("Nenhum dispositivo de entrada (microfone) disponível.")
+            mic_available = False
+            return
+        else:
+            mic_available = True
+        stream = sd.InputStream(callback=audio_callback)
+        stream.start()
+    except Exception as e:
+        print(f"Não foi possível iniciar o stream de áudio: {e}")
+        mic_available = False
 
 # Inicia o stream de áudio na thread principal
 start_audio_stream()
@@ -272,7 +285,8 @@ def update_goals(event):
     # Adicionar aleatoriedade dentro de um intervalo menor em torno dos valores atuais
     scale_goal = random.uniform(max(0.5, scale_goal - 0.5), min(2.0, scale_goal + 0.5))
     # speed_goal = random.uniform(max(0.1, speed_goal - 0.3), min(1.0, speed_goal + 0.3))
-    amplitude_goal = random.uniform(max(0.5, amplitude_goal - 1.0), min(3.0, amplitude_goal + 1.0))
+    if not mic_available:
+        amplitude_goal = random.uniform(max(0.5, amplitude_goal - 1.0), min(3.0, amplitude_goal + 1.0))
     gc.collect()
 
 # Temporizador para atualizar os goals a cada 40 segundos
@@ -369,13 +383,14 @@ def update(event):
     #     speed_goal = speed_goal - touch2 * 0.001
 
 
-    # # Normalizar o volume do microfone
-    normalized_mic_volume = np.clip(mic_volume / 10.0, 0.0, 0.5)
-    # # print(normalized_mic_volume)
+    if mic_available:
+        # # Normalizar o volume do microfone
+        normalized_mic_volume = np.clip(mic_volume / 10.0, 0.0, 0.5)
+        # # print(normalized_mic_volume)
 
-    # # Atualizar a velocidade com base no volume do microfone
-    # amplitude_goal = normalized_mic_volume * 10
-    amplitude_goal = normalized_mic_volume * 5
+        # # Atualizar a velocidade com base no volume do microfone
+        # amplitude_goal = normalized_mic_volume * 10
+        amplitude_goal = normalized_mic_volume * 5
 
     # print(amplitude_goal)
 
